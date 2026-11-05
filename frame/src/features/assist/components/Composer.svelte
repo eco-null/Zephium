@@ -80,6 +80,9 @@
     field.style.blockSize = `${Math.min(field.scrollHeight, 168)}px`;
   }
   $effect(() => {
+    // Native content sizing avoids collapsing the focused field on each key.
+    // Keep the measured fallback for older system WebKit versions.
+    if (CSS.supports("field-sizing", "content")) return;
     void draft;
     void tick().then(grow);
   });
@@ -382,6 +385,7 @@
   }
 
   textarea {
+    field-sizing: content;
     inline-size: 100%;
     min-block-size: 40px;
     max-block-size: 168px;

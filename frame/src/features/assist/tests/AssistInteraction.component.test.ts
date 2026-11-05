@@ -1,4 +1,4 @@
-import { beforeEach, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { page, userEvent } from "vitest/browser";
 import { render } from "vitest-browser-svelte";
 import "$styles/global.css";
@@ -95,6 +95,8 @@ beforeEach(() => {
   });
 });
 
+afterEach(() => vi.restoreAllMocks());
+
 async function open(next: PageAssistStatusV1) {
   native.status = next;
   await page.viewport(400, 820);
@@ -105,6 +107,51 @@ async function open(next: PageAssistStatusV1) {
   await expect.poll(() => native.statusCalls).toBeGreaterThan(0);
   return { screen, field, onclose };
 }
+
+test("the composer follows wrapped text when the sidebar width changes", async () => {
+  const { screen, field } = await open(status());
+  const input = field.element() as HTMLTextAreaElement;
+  await field.fill("A line of text. ".repeat(8));
+  await expect.poll(() => input.clientHeight).toBeGreaterThan(40);
+  const wideHeight = input.clientHeight;
+  const sidebar = screen.container.querySelector<HTMLElement>(".stage")!;
+  sidebar.style.inlineSize = "240px";
+  await expect.poll(() => input.clientHeight).toBeGreaterThan(wideHeight);
+  expect(input.clientHeight).toBe(input.scrollHeight);
+  sidebar.style.inlineSize = "356px";
+  await expect.poll(() => input.clientHeight).toBe(wideHeight);
+});
+
+test.each([false, true])(
+  "the composer grows, caps and shrinks (measured fallback: %s)",
+  async (fallback) => {
+    if (fallback) {
+      const supports = CSS.supports.bind(CSS);
+      vi.spyOn(CSS, "supports").mockImplementation((...args: string[]) =>
+        args[0] === "field-sizing" ? false : supports(args[0]!, args[1]!),
+      );
+    }
+    const { field } = await open(status());
+    const input = field.element() as HTMLTextAreaElement;
+    if (fallback) input.style.setProperty("field-sizing", "fixed");
+    await field.fill("Short");
+    await expect.poll(() => input.clientHeight).toBe(40);
+    await field.fill("A line of text. ".repeat(8));
+    await expect.poll(() => input.clientHeight).toBeGreaterThan(40);
+    expect(input.clientHeight).toBe(input.scrollHeight);
+    await field.fill("A line of text. ".repeat(40));
+    await expect.poll(() => input.clientHeight).toBe(168);
+    await userEvent.keyboard("{Control>}{End}{/Control}");
+    input.scrollTop = input.scrollHeight;
+    const top = input.scrollTop;
+    await userEvent.keyboard("x");
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    expect(input.clientHeight).toBe(168);
+    expect(input.scrollTop).toBe(top);
+    await field.fill("");
+    await expect.poll(() => input.clientHeight).toBe(40);
+  },
+);
 
 test("Enter sends with the page in front; Shift+Enter only adds a line; × leaves the page out", async () => {
   const { screen, field } = await open(status());
